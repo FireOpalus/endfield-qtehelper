@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <UseWindowsForms>true</UseWindowsForms>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <ApplicationIcon>assets\laevatain-pixel.ico</ApplicationIcon>
+    <AssemblyName>EndfieldQteHelper-v$(Version)</AssemblyName>
+    <RootNamespace>EndfieldQteHelper</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <EmbeddedResource Include="assets\laevatain-pixel.ico" LogicalName="EndfieldQteHelper.AppIcon" />
+  </ItemGroup>
+</Project>

@@ -1,0 +1,7 @@
+<Project>
+  <PropertyGroup>
+    <Version>1.0.0</Version>
+    <Product>Endfield QTE Helper</Product>
+    <Description>终末地 QTE 冷却悬浮助手</Description>
+  </PropertyGroup>
+</Project>
