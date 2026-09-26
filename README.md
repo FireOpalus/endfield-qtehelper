@@ -8,7 +8,14 @@ Windows 桌面悬浮助手：读取左下角头像下方、蓝色血条上方的
 
 ## 运行
 
-从 Releases 下载 `EndfieldQteHelper-v1.1.0.exe`，或下载 ZIP 并解压后双击同名程序。发布版包含运行时，无需另装 .NET。切换到新版前，请从旧版托盘菜单选择“退出”。本地打包位于 `dist/v1.1.0/win-x64/`。
+从 Releases 下载 EXE，或下载 ZIP 并解压后运行。切换到新版前，请从旧版托盘菜单选择“退出”。
+
+| 下载版本 | .NET 要求 |
+| --- | --- |
+| `EndfieldQteHelper-v1.1.0.exe` / `EndfieldQteHelper-v1.1.0-win-x64.zip` | 完整版，包含运行时，无需另装 .NET |
+| `EndfieldQteHelper-v1.1.0-win-x64-framework-dependent.zip` | 精简版，不包含运行时；需要安装 **.NET 8 Desktop Runtime，Windows x64** |
+
+精简版的[运行时官方下载页](https://dotnet.microsoft.com/en-us/download/dotnet/8.0)：选择 **.NET Desktop Runtime → Windows → x64**，仅安装普通 .NET Runtime 不够。已有兼容的 .NET 8 桌面运行时可直接启动。本地完整包位于 `dist/v1.1.0/win-x64/`，精简包位于 `dist/v1.1.0/win-x64-framework-dependent/`。
 
 1. 游戏使用**无边框窗口**或**窗口模式**，在助手中选择游戏所在显示器。
 2. 点击“开始检测”，核对实时采样中的黄框是否位于 QTE 细条，青框是否位于紧邻下方的蓝色血条。
@@ -53,11 +60,15 @@ Windows 桌面悬浮助手：读取左下角头像下方、蓝色血条上方的
 
 ```powershell
 .\scripts\build.ps1
+# 不包含 .NET 的精简版：
+.\scripts\build.ps1 -FrameworkDependent
 # 临时指定下一版本：
 .\scripts\build.ps1 -Version 1.1.1
 ```
 
 默认版本在 `Directory.Build.props` 中维护。脚本会发布 Windows x64 独立 EXE、运行内置验证，并生成 ZIP 和 SHA256 校验文件。输出格式为 `dist/v<版本>/win-x64/EndfieldQteHelper-v<版本>.exe`，每个版本单独存放。即使直接执行 `dotnet build` 或 `dotnet publish`，EXE 名称也包含版本号。发布前请更新默认版本和 `CHANGELOG.md`，同一版本正在运行时需要先退出再重新打包。
+
+`-FrameworkDependent` 使用独立目录与 `-framework-dependent` 文件名后缀，生成单文件 EXE 和 ZIP；校验文件为 `SHA256SUMS-framework-dependent.txt`，不会覆盖完整版校验文件。构建精简版时，本机也需要 .NET 8 桌面运行时来运行验证。
 
 无外部 NuGet 库。代码包括屏幕抓取、识别、防抖、校准、悬浮窗及设置窗口。莱万汀像素图标用于 EXE、设置窗口和托盘，详见 [图标说明](assets/NOTICE.md)。
 

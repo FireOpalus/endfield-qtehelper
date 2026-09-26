@@ -1,6 +1,7 @@
 param(
     [string]$Version,
-    [string]$Runtime = 'win-x64'
+    [string]$Runtime = 'win-x64',
+    [switch]$FrameworkDependent
 )
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
@@ -11,12 +12,20 @@ if (-not $Version) {
 }
 if ($Version -notmatch '^\d+\.\d+\.\d+$') { throw 'Version must be in major.minor.patch format, for example 1.0.1.' }
 if ($Runtime -ne 'win-x64') { throw 'Only the verified win-x64 package is currently supported.' }
-$outputDirectory = Join-Path $projectRoot "dist\v$Version\$Runtime"
+$variant = if ($FrameworkDependent) { '-framework-dependent' } else { '' }
+$selfContained = if ($FrameworkDependent) { 'false' } else { 'true' }
+$outputDirectory = Join-Path $projectRoot "dist\v$Version\$Runtime$variant"
 New-Item -ItemType Directory -Force -Path $outputDirectory | Out-Null
-& dotnet publish (Join-Path $projectRoot 'EndfieldQteHelper.csproj') -c Release -r $Runtime --self-contained true "-p:Version=$Version" -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:DebugType=None -o $outputDirectory
+& dotnet publish (Join-Path $projectRoot 'EndfieldQteHelper.csproj') -c Release -r $Runtime --self-contained $selfContained "-p:Version=$Version" -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:DebugType=None -o $outputDirectory
 if ($LASTEXITCODE -ne 0) { throw 'Build failed. Close a running copy of this version before overwriting its executable.' }
 $executableName = "EndfieldQteHelper-v$Version.exe"
 $executablePath = Join-Path $outputDirectory $executableName
+if ($FrameworkDependent) {
+    $executableName = "EndfieldQteHelper-v$Version-framework-dependent.exe"
+    $renamedPath = Join-Path $outputDirectory $executableName
+    Move-Item -LiteralPath $executablePath -Destination $renamedPath -Force
+    $executablePath = $renamedPath
+}
 $reportPath = Join-Path $outputDirectory 'verification.json'
 $testProcess = Start-Process -FilePath $executablePath -ArgumentList @('--self-test', ('"' + $reportPath + '"')) -WindowStyle Hidden -PassThru -Wait
 if ($testProcess.ExitCode -ne 0) { throw "Verification failed. Inspect $reportPath" }
@@ -27,10 +36,15 @@ New-Item -ItemType Directory -Force -Path $packageAssets | Out-Null
 foreach ($asset in @('NOTICE.md', 'icon-prompt.txt', 'laevatain-pixel.png')) {
     Copy-Item -LiteralPath (Join-Path $projectRoot "assets\$asset") -Destination (Join-Path $packageAssets $asset)
 }
-$zipPath = Join-Path (Split-Path -Parent $outputDirectory) "EndfieldQteHelper-v$Version-$Runtime.zip"
-$packageFiles = @($executablePath, (Join-Path $outputDirectory 'README.md'), (Join-Path $outputDirectory 'CHANGELOG.md'), $packageAssets)
+$runtimeNote = if ($FrameworkDependent) {
+    "This package does NOT include .NET. Install Microsoft .NET 8 Desktop Runtime for Windows x64 before running.`r`nDownload: https://dotnet.microsoft.com/en-us/download/dotnet/8.0`r`nChoose .NET Desktop Runtime / Windows / x64. The console-only .NET Runtime is insufficient."
+} else { 'This self-contained package includes the .NET runtime. No separate runtime installation is required.' }
+$runtimeNotePath = Join-Path $outputDirectory 'RUNTIME.txt'
+$runtimeNote | Set-Content -LiteralPath $runtimeNotePath -Encoding utf8
+$zipPath = Join-Path (Split-Path -Parent $outputDirectory) "EndfieldQteHelper-v$Version-$Runtime$variant.zip"
+$packageFiles = @($executablePath, (Join-Path $outputDirectory 'README.md'), (Join-Path $outputDirectory 'CHANGELOG.md'), $packageAssets, $runtimeNotePath)
 Compress-Archive -LiteralPath $packageFiles -DestinationPath $zipPath -Force
 $hashes = @($executablePath, $zipPath) | ForEach-Object { $hash = Get-FileHash -LiteralPath $_ -Algorithm SHA256; "$($hash.Hash.ToLowerInvariant())  $([IO.Path]::GetFileName($_))" }
-$hashes | Set-Content -LiteralPath (Join-Path (Split-Path -Parent $outputDirectory) 'SHA256SUMS.txt') -Encoding ascii
+$hashes | Set-Content -LiteralPath (Join-Path (Split-Path -Parent $outputDirectory) "SHA256SUMS$variant.txt") -Encoding ascii
 Write-Output "Built and verified: $executablePath"
 Write-Output "Release package: $zipPath"
