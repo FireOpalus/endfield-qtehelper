@@ -38,7 +38,7 @@ public sealed class MainForm : Form
         var root = new FlowLayoutPanel { Dock = DockStyle.Fill, FlowDirection = FlowDirection.TopDown, WrapContents = false, AutoScroll = true, Padding = new Padding(24, 18, 16, 16) };
         Controls.Add(root);
         root.Controls.Add(new Label { Text = "QTE 冷却，抬眼可见", AutoSize = true, Font = new Font(Font.FontFamily, 20, FontStyle.Bold), Margin = new Padding(0, 0, 0, 10) });
-        root.Controls.Add(new Label { Text = "绿圆 = 冷却完成    灰圆 = 冷却中    黄圆 = 未识别\n编号与左下角角色从左到右一一对应，悬浮标记为 50% 不透明度。", AutoSize = true, Margin = new Padding(0, 0, 0, 14) });
+        root.Controls.Add(new Label { Text = "绿圆 = 冷却完成    灰圆扇区 = 冷却进度    黄圆 = 未识别\n浅灰从顶部顺时针填充，填满后等待白条确认；标记不透明度 50%。", AutoSize = true, Margin = new Padding(0, 0, 0, 14) });
         root.Controls.Add(Row(new Label { Text = "游戏显示器", AutoSize = true, Width = 110 }, monitors));
         RefreshMonitors();
         monitors.SelectedIndexChanged += (_, _) =>
@@ -63,9 +63,11 @@ public sealed class MainForm : Form
         root.Controls.Add(preview);
         var brightness = new NumericUpDown { Minimum = 140, Maximum = 250, Value = settings.Brightness, Width = 68 };
         brightness.ValueChanged += (_, _) => { settings.Brightness = (int)brightness.Value; ResetStates(); };
+        var progressBrightness = new NumericUpDown { Minimum = 60, Maximum = 200, Value = settings.ProgressBrightness, Width = 68 };
+        progressBrightness.ValueChanged += (_, _) => { settings.ProgressBrightness = (int)progressBrightness.Value; ResetStates(); };
         var scale = new NumericUpDown { Minimum = 60, Maximum = 180, Increment = 10, Value = settings.OverlayScale, Width = 68 };
         scale.ValueChanged += (_, _) => { settings.OverlayScale = (int)scale.Value; overlay.Place(SelectedScreen.Bounds); };
-        root.Controls.Add(Row(new Label { Text = "白色亮度阈值", AutoSize = true }, brightness, new Label { Text = "  标记大小 %", AutoSize = true }, scale));
+        root.Controls.Add(Row(new Label { Text = "就绪亮度", AutoSize = true }, brightness, new Label { Text = "  进度亮度", AutoSize = true }, progressBrightness, new Label { Text = "  大小 %", AutoSize = true }, scale));
         var sound = new CheckBox { Text = "从冷却变为就绪时播放提示音", Checked = settings.Sound, AutoSize = true };
         sound.CheckedChanged += (_, _) => settings.Sound = sound.Checked;
         root.Controls.Add(sound);
@@ -149,7 +151,7 @@ public sealed class MainForm : Form
     private void ResetStates()
     {
         foreach (var f in filters) f.Reset();
-        overlay.SetStates(filters.Select(f => f.State).ToArray());
+        overlay.SetStates(filters.Select(f => f.State).ToArray(), filters.Select(f => f.Progress).ToArray());
         foreach (var label in readings) if (label is not null) label.Text = "未识别";
     }
     private async Task Calibrate()
@@ -202,15 +204,15 @@ public sealed class MainForm : Form
             for (int i = 0; i < 4; i++)
             {
                 var region = regions[i]; region.Offset(-captureArea.X, -captureArea.Y);
-                var reading = Detector.Read(frame, region, settings.Brightness);
+                var reading = Detector.Read(frame, region, settings.Brightness, settings.ProgressBrightness);
                 var previous = filters[i].State;
-                var next = filters[i].Update(reading.State);
+                var next = filters[i].Update(reading.State, reading.Progress);
                 beep |= previous == QteState.Cooling && next == QteState.Ready;
                 if (reading.State == QteState.Unknown) unknown++;
-                readings[i].Text = $"{StateText(next)}   白色覆盖 {reading.White:P0}";
+                readings[i].Text = next == QteState.Unknown ? "未识别" : $"{StateText(next)}   进度 {filters[i].Progress:P0}   白色 {reading.White:P0}";
                 readings[i].ForeColor = next == QteState.Ready ? Color.SeaGreen : next == QteState.Cooling ? Color.DimGray : Color.DarkGoldenrod;
             }
-            overlay.SetStates(filters.Select(f => f.State).ToArray());
+            overlay.SetStates(filters.Select(f => f.State).ToArray(), filters.Select(f => f.Progress).ToArray());
             if (beep && settings.Sound) SystemSounds.Asterisk.Play();
             if (Visible && WindowState != FormWindowState.Minimized)
             {

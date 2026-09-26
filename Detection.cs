@@ -4,7 +4,7 @@ using System.Runtime.InteropServices;
 namespace EndfieldQteHelper;
 
 public enum QteState { Unknown, Cooling, Ready }
-public record Reading(QteState State, double White, double Hud, string Detail);
+public record Reading(QteState State, double White, double Hud, string Detail, double Progress = 0);
 
 public sealed class PixelFrame
 {
@@ -35,7 +35,7 @@ public static class Detector
     public static Rectangle HealthRegion(Rectangle bar) => new(bar.X, bar.Bottom + Math.Max(1, (int)Math.Round(bar.Height * .6)),
         bar.Width, Math.Max(2, (int)Math.Round(bar.Height * 1.4)));
 
-    public static Reading Read(PixelFrame frame, Rectangle bar, int brightness = 220)
+    public static Reading Read(PixelFrame frame, Rectangle bar, int brightness = 220, int progressBrightness = 120)
     {
         var health = HealthRegion(bar);
         var bounds = new Rectangle(Point.Empty, frame.Size);
@@ -50,44 +50,64 @@ public static class Detector
             }
         double hud = (double)cyan / (health.Width * health.Height);
         int whiteColumns = 0, neutral = 0, tailWhite = 0;
+        var filledColumns = new bool[bar.Width];
+        int fillThreshold = Math.Min(brightness, progressBrightness);
         int tailStart = bar.Width * 9 / 10;
         for (int x = 0; x < bar.Width; x++)
         {
-            int white = 0;
+            int white = 0, filled = 0;
             for (int y = bar.Top; y < bar.Bottom; y++)
             {
                 var c = frame.At(bar.X + x, y);
                 int min = Math.Min(c.R, Math.Min(c.G, c.B)), max = Math.Max(c.R, Math.Max(c.G, c.B));
                 if (max - min <= 42) neutral++;
                 if (min >= brightness && max - min <= 42) white++;
+                if (min >= fillThreshold && max - min <= 42) filled++;
             }
             if (white >= Math.Max(1, (int)Math.Ceiling(bar.Height * .6)))
             {
                 whiteColumns++;
                 if (x >= tailStart) tailWhite++;
             }
+            filledColumns[x] = filled >= Math.Max(1, (int)Math.Ceiling(bar.Height * .6));
         }
         double ratio = (double)whiteColumns / bar.Width;
         if (hud < .08 || (double)neutral / (bar.Width * bar.Height) < .70)
             return new(QteState.Unknown, ratio, hud, "未检测到血条或进度条，等待 HUD");
         bool ready = ratio >= .985 && (double)tailWhite / (bar.Width - tailStart) >= .95;
-        return new(ready ? QteState.Ready : QteState.Cooling, ratio, hud, ready ? "白条已填满" : "进度条未填满");
+        // Track the contiguous fill from the left, rather than counting detached bright effects.
+        // Allow a tiny internal gap for resampling, without extending past the last filled column.
+        int end = 0, gap = 0, filledCount = 0, gapTolerance = Math.Max(1, bar.Width / 100);
+        for (int x = 0; x < filledColumns.Length; x++)
+        {
+            if (filledColumns[x]) { end = x + 1; gap = 0; filledCount++; }
+            else if (++gap > gapTolerance) break;
+        }
+        double progress = filledCount >= 2 ? (double)end / bar.Width : 0;
+        return new(ready ? QteState.Ready : QteState.Cooling, ratio, hud, ready ? "白条已填满" : "进度条未填满", ready ? 1 : progress);
     }
 }
 
 public sealed class StateFilter
 {
     public QteState State { get; private set; }
+    public double Progress { get; private set; }
     private QteState candidate;
     private int count;
-    public QteState Update(QteState next)
+    public QteState Update(QteState next, double progress = 0)
     {
         if (next == QteState.Unknown) { Reset(); return State; }
         if (candidate != next) { candidate = next; count = 1; } else count++;
         if (count >= (next == QteState.Ready ? 3 : 2)) State = next;
+        Progress = State switch
+        {
+            QteState.Ready => 1,
+            QteState.Cooling => double.IsFinite(progress) ? Math.Clamp(progress, 0, 1) : 0,
+            _ => 0
+        };
         return State;
     }
-    public void Reset() { State = candidate = QteState.Unknown; count = 0; }
+    public void Reset() { State = candidate = QteState.Unknown; count = 0; Progress = 0; }
 }
 
 public static class Capture

@@ -41,6 +41,45 @@ internal static class Verification
                 Check("colored effect rejected", Detector.Read(new PixelFrame(bmp), bar).State == QteState.Unknown);
             using (var bmp = Synthetic(108))
                 Check("out of bounds rejected", Detector.Read(new PixelFrame(bmp), new Rectangle(120, 0, 20, 5)).State == QteState.Unknown);
+            foreach (int filled in new[] { 0, 27, 54, 81, 106, 108 })
+            {
+                using var bmp = Synthetic(0);
+                using (var g = Graphics.FromImage(bmp))
+                using (var gray = new SolidBrush(Color.FromArgb(160, 160, 160)))
+                    g.FillRectangle(gray, new Rectangle(bar.X, bar.Y, filled, bar.Height));
+                var reading = Detector.Read(new PixelFrame(bmp), bar);
+                Check($"gray fill {filled}/108", reading.State == QteState.Cooling && Math.Abs(reading.Progress - filled / 108.0) < .001, reading);
+            }
+            using (var bmp = Synthetic(27))
+            {
+                using (var g = Graphics.FromImage(bmp)) g.FillRectangle(Brushes.White, bar.X + 75, bar.Y, 15, bar.Height);
+                var reading = Detector.Read(new PixelFrame(bmp), bar);
+                Check("detached bright effect does not extend progress", Math.Abs(reading.Progress - .25) < .001, reading);
+            }
+            using (var bmp = Synthetic(54))
+            {
+                using (var g = Graphics.FromImage(bmp)) g.FillRectangle(Brushes.Black, bar.X + 12, bar.Y, 1, bar.Height);
+                Check("one pixel internal gap tolerated", Math.Abs(Detector.Read(new PixelFrame(bmp), bar).Progress - .5) < .001);
+            }
+            using (var bmp = Synthetic(54, false))
+                Check("missing HUD clears progress", Detector.Read(new PixelFrame(bmp), bar).Progress == 0);
+            using (var bmp = Synthetic(0))
+            {
+                using (var g = Graphics.FromImage(bmp))
+                using (var gray = new SolidBrush(Color.FromArgb(100, 100, 100)))
+                    g.FillRectangle(gray, bar.X, bar.Y, 54, bar.Height);
+                var frame = new PixelFrame(bmp);
+                Check("dim fill threshold adjustment", Detector.Read(frame, bar).Progress == 0 && Math.Abs(Detector.Read(frame, bar, 220, 90).Progress - .5) < .001);
+            }
+            var progressFilter = new StateFilter();
+            progressFilter.Update(QteState.Cooling, .25);
+            progressFilter.Update(QteState.Cooling, .25);
+            Check("confirmed cooldown carries progress", progressFilter.State == QteState.Cooling && progressFilter.Progress == .25);
+            progressFilter.Update(QteState.Cooling, .75);
+            Check("progress updates without state change", progressFilter.Progress == .75);
+            progressFilter.Update(QteState.Unknown, .75);
+            Check("unknown clears filtered progress", progressFilter.Progress == 0);
+            Check("old configuration receives progress default", JsonSerializer.Deserialize<Settings>("{\"Brightness\":220}")!.ProgressBrightness == 120);
             var f = new StateFilter();
             Check("ready debounce frame 1", f.Update(QteState.Ready) == QteState.Unknown);
             Check("ready debounce frame 2", f.Update(QteState.Ready) == QteState.Unknown);
@@ -66,6 +105,14 @@ internal static class Verification
                 Check("overlay can be dragged when unlocked", (Native.GetWindowLong(marker.Handle, -20) & 0x20) == 0);
                 marker.Editing = false;
                 Check("overlay restores mouse pass-through", (Native.GetWindowLong(marker.Handle, -20) & 0x20) != 0);
+                marker.SetStates([QteState.Cooling, QteState.Cooling, QteState.Ready, QteState.Unknown], [0, .25, 1, 0]);
+                using var pieImage = new Bitmap(marker.Width, marker.Height);
+                marker.DrawToBitmap(pieImage, new Rectangle(Point.Empty, marker.Size));
+                var light = Color.FromArgb(160, 173, 190).ToArgb();
+                var dark = Color.FromArgb(75, 83, 96).ToArgb();
+                Check("quarter pie fills top-right clockwise", pieImage.GetPixel(76, 12).ToArgb() == light && pieImage.GetPixel(56, 28).ToArgb() == dark);
+                Check("empty cooldown stays dark", pieImage.GetPixel(32, 12).ToArgb() == dark);
+                Check("ready stays solid green", pieImage.GetPixel(120, 12).ToArgb() == Color.FromArgb(115, 255, 185).ToArgb());
             }
 
             // Optional user-provided full-resolution reference images: all ready, then slot 1 cooling.
@@ -105,7 +152,16 @@ internal static class Verification
         main.DrawToBitmap(mainImage, new Rectangle(Point.Empty, main.Size));
         mainImage.Save(Path.Combine(directory, "settings-preview.png"));
         using var overlay = new OverlayForm(new Settings());
-        overlay.SetStates([QteState.Ready, QteState.Cooling, QteState.Ready, QteState.Unknown]);
+        overlay.SetStates([QteState.Ready, QteState.Cooling, QteState.Cooling, QteState.Unknown], [1, .25, .75, 0]);
+        SaveOverlay(overlay, Path.Combine(directory, "overlay-preview.png"));
+        overlay.SetStates([QteState.Cooling, QteState.Cooling, QteState.Cooling, QteState.Cooling], [0, .25, .5, .75]);
+        SaveOverlay(overlay, Path.Combine(directory, "cooldown-progress-preview.png"));
+        main.Close();
+        return 0;
+    }
+
+    private static void SaveOverlay(OverlayForm overlay, string path)
+    {
         using var image = new Bitmap(overlay.Width, overlay.Height);
         overlay.DrawToBitmap(image, new Rectangle(Point.Empty, overlay.Size));
         image.MakeTransparent(Color.Magenta);
@@ -117,8 +173,6 @@ internal static class Verification
             attributes.SetColorMatrix(new ColorMatrix { Matrix33 = (float)overlay.Opacity });
             g.DrawImage(image, new Rectangle(Point.Empty, image.Size), 0, 0, image.Width, image.Height, GraphicsUnit.Pixel, attributes);
         }
-        translucent.Save(Path.Combine(directory, "overlay-preview.png"));
-        main.Close();
-        return 0;
+        translucent.Save(path);
     }
 }

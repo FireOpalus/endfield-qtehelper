@@ -6,6 +6,7 @@ public sealed class OverlayForm : Form
 {
     private readonly Settings settings;
     private QteState[] states = new QteState[4];
+    private double[] progress = new double[4];
     private bool editing;
     private Point dragStart, windowStart;
     public event Action? PositionChanged;
@@ -51,7 +52,13 @@ public sealed class OverlayForm : Form
         Location = new Point(Math.Clamp(monitor.X + (int)(monitor.Width * settings.OverlayX) - Width / 2, monitor.Left, Math.Max(monitor.Left, monitor.Right - Width)),
             Math.Clamp(monitor.Y + (int)(monitor.Height * settings.OverlayY) - Height / 2, monitor.Top, Math.Max(monitor.Top, monitor.Bottom - Height)));
     }
-    public void SetStates(QteState[] value) { states = value.ToArray(); Invalidate(); }
+    public void SetStates(QteState[] value, double[]? completed = null)
+    {
+        if (value.Length != 4 || (completed is not null && completed.Length != 4)) throw new ArgumentException("Exactly four slots are required.");
+        states = value.ToArray();
+        progress = completed?.Select(p => double.IsFinite(p) ? Math.Clamp(p, 0, 1) : 0).ToArray() ?? new double[4];
+        Invalidate();
+    }
     protected override void OnPaint(PaintEventArgs e)
     {
         base.OnPaint(e);
@@ -65,8 +72,21 @@ public sealed class OverlayForm : Form
             var circle = new RectangleF(6 + i * 44, 4, 32, 32);
             var color = states[i] switch { QteState.Ready => Color.FromArgb(115, 255, 185), QteState.Cooling => Color.FromArgb(160, 173, 190), _ => Color.FromArgb(255, 198, 100) };
             using var accent = new SolidBrush(color);
-            g.FillEllipse(accent, circle);
-            g.DrawString((i + 1).ToString(), number, Brushes.Black, circle, format);
+            if (states[i] == QteState.Cooling)
+            {
+                using var remaining = new SolidBrush(Color.FromArgb(75, 83, 96));
+                g.FillEllipse(remaining, circle);
+                if (progress[i] >= 1) g.FillEllipse(accent, circle);
+                else if (progress[i] > 0) g.FillPie(accent, circle.X, circle.Y, circle.Width, circle.Height, -90, (float)(360 * progress[i]));
+                var shadow = circle; shadow.Offset(1, 1);
+                g.DrawString((i + 1).ToString(), number, Brushes.Black, shadow, format);
+                g.DrawString((i + 1).ToString(), number, Brushes.White, circle, format);
+            }
+            else
+            {
+                g.FillEllipse(accent, circle);
+                g.DrawString((i + 1).ToString(), number, Brushes.Black, circle, format);
+            }
         }
     }
     protected override void OnMouseDown(MouseEventArgs e)

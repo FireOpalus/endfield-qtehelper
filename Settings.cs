@@ -17,6 +17,7 @@ public sealed class Settings
     public string[] Names { get; set; } = ["角色 1", "角色 2", "角色 3", "角色 4"];
     public Region[]? Regions { get; set; }
     public int Brightness { get; set; } = 220;
+    public int ProgressBrightness { get; set; } = 120;
     public int Interval { get; set; } = 100;
     public int OverlayScale { get; set; } = 100;
     public double OverlayX { get; set; } = .5;
@@ -33,6 +34,7 @@ public sealed class Settings
             s.Names = s.Names.Select((n, i) => string.IsNullOrWhiteSpace(n) ? $"角色 {i + 1}" : n[..Math.Min(n.Length, 12)]).ToArray();
             if (s.Regions is not { Length: 4 } || s.Regions.Any(r => r is null || !r.Valid)) s.Regions = null;
             s.Brightness = Math.Clamp(s.Brightness, 140, 250);
+            s.ProgressBrightness = Math.Clamp(s.ProgressBrightness, 60, 200);
             s.Interval = Math.Clamp(s.Interval, 50, 500);
             s.OverlayScale = Math.Clamp(s.OverlayScale, 60, 180);
             if (!double.IsFinite(s.OverlayX)) s.OverlayX = .5;
